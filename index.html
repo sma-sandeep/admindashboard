@@ -573,6 +573,7 @@ html, body {
   padding: 16px;
 }
 .chart-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 14px; }
+.chart-hint { font-size: 11px; font-weight: 400; color: var(--muted2); margin-left: 6px; }
 .chart-wrap { position: relative; }
 
 /* ── TEAM GRID ── */
@@ -754,6 +755,72 @@ tr:hover td { background: var(--bg); }
 .fu-name { font-weight: 500; font-size: 13px; color: var(--text); margin-bottom: 2px; }
 .fu-time { font-size: 11px; color: var(--muted); }
 .fu-by   { font-size: 11px; color: var(--muted2); }
+.fu-days { font-family:'DM Mono',monospace; font-size: 11px; font-weight: 500; padding: 3px 9px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+.fu-days.od  { background: var(--red-bg);    color: var(--red); }
+.fu-days.td  { background: var(--blue-bg);   color: var(--blue); }
+.fu-days.tm  { background: var(--purple-bg); color: var(--purple); }
+.fu-days.up  { background: var(--green-bg);  color: var(--green); }
+
+/* Salesperson filter bar */
+.sp-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.sp-bar-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.sp-bar-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.sp-search {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  padding: 6px 11px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  width: 210px;
+  margin-left: auto;
+  transition: border-color .15s;
+}
+.sp-search:focus { border-color: var(--accent); }
+.sp-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.sp-chip {
+  background: none;
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all .15s;
+  color: var(--text2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sp-chip:hover { border-color: var(--accent); color: var(--accent); }
+.sp-chip.act { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.sp-chip .cnt { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); }
+.sp-chip.act .cnt { color: var(--accent); }
+.sp-chip .od-dot {
+  background: var(--red-bg);
+  color: var(--red);
+  border-radius: 20px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+}
+
+/* Salesperson summary table */
+.sp-table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 18px; }
+.sp-table-card table td { cursor: pointer; }
+.sp-table-card tr.act td { background: var(--accent-bg); }
+.num { font-family: 'DM Mono', monospace; font-weight: 500; }
+.num.zero { color: var(--muted2); font-weight: 400; }
 
 /* ── ASSIGNMENTS ── */
 .asgn-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
@@ -835,6 +902,7 @@ tr:hover td { background: var(--bg); }
   .charts-row { grid-template-columns: 1fr; }
   .team-grid { grid-template-columns: 1fr; }
   .date-filter-wrap { display: none; }
+  .sp-search { width: 100%; margin-left: 0; }
 }
 @media (max-width: 700px) {
   .stats-row { grid-template-columns: repeat(2, 1fr); }
@@ -1013,6 +1081,12 @@ let CU = null, PAGE = 'overview';
 let PARTIES = [], VISITS = [], USERS = [], REQUESTS = [], ASSIGNMENTS = [], QUOTE_PI = [], ADMIN_LOCS = {}, ACTIVE_SESSIONS = {};
 let _charts = {}, _salesDetailUid = null;
 let _filterFrom = null, _filterTo = null;
+
+/* Follow-up page state */
+let _fuSales = 'all';      // selected salesperson key ('all' = everyone)
+let _fuBucket = 'all';     // all | overdue | today | tomorrow | upcoming
+let _fuSrch = '';          // party name search
+let _fuStats = [];         // per-salesperson counts (used by the chart)
 
 // Close preset on outside click
 document.addEventListener('click', e => {
@@ -1248,7 +1322,7 @@ function renderPage(page, data) {
     case 'salesDetail': c.innerHTML = pgSalesDetail(data || _salesDetailUid); break;
     case 'parties':     c.innerHTML = pgParties(); break;
     case 'visits':      c.innerHTML = pgVisits(); break;
-    case 'followups':   c.innerHTML = pgFollowups(); break;
+    case 'followups':   c.innerHTML = pgFollowups(); initFollowupChart(); break;
     case 'assignments': c.innerHTML = pgAssignments(); break;
     case 'requests':    c.innerHTML = pgRequests(); break;
     default: c.innerHTML = pgOverview(); initOverviewCharts();
@@ -1466,7 +1540,7 @@ function teamCard(u) {
       <div class="tc-stat"><div class="tc-sv">${total}</div><div class="tc-sl">Total</div></div>
     </div>
     <div class="tc-lastseen">Last seen: <b style="color:${live?'var(--green)':'var(--text)'}">${fmtLastSeen(u.id)}</b>${lv&&lv.lat?`<br>${parseFloat(lv.lat).toFixed(5)}, ${parseFloat(lv.lng).toFixed(5)}`:''}${lv&&lv.area?`<br>${lv.area}`:''}</div>
-    <button class="tc-btn" onclick="navTo('salesDetail','${u.id}')">View full detail</button>
+    <button class="tc-btn" onclick="navTo('salesDetail','${jsq(u.id)}')">View full detail</button>
   </div>`;
 }
 
@@ -1480,6 +1554,8 @@ function pgSalesDetail(uid) {
   const weekV  = all.filter(v=>new Date(v.checkin).getTime()>Date.now()-7*86400000);
   const myP    = PARTIES.filter(p=>p.addedBy===uid);
   const myA    = ASSIGNMENTS.filter(a=>a.salespersonId===uid&&a.assignedDate===todayStr());
+  const myFu   = getLatestFollowups(VISITS).filter(v=>v.salesperson===uid);
+  const myOd   = myFu.filter(v=>new Date(v.followupDate)<new Date()).length;
   return `<div class="sd-back" onclick="navTo('team')"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>Back to Team</div>
     <div style="background:var(--surface);border:1px solid ${live?'rgba(22,163,74,.3)':'var(--border)'};border-radius:var(--radius);padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:14px">
       <div style="position:relative">
@@ -1490,6 +1566,7 @@ function pgSalesDetail(uid) {
         <div style="font-weight:600;font-size:16px;margin-bottom:3px;display:flex;align-items:center;gap:8px">${u.name}${live?'<span style="font-size:10px;background:var(--green-bg);color:var(--green);padding:2px 8px;border-radius:20px;border:1px solid rgba(22,163,74,.2)">Online</span>':''}</div>
         <div style="font-size:12px;color:var(--muted)">${u.id} · Last seen: ${fmtLastSeen(u.id)}${deviceOf(u.id)?' · '+deviceOf(u.id):''}</div>
       </div>
+      <button class="sec-action" onclick="openFollowupsFor('${jsq(u.id)}')">Follow-ups (${myFu.length}${myOd?' · '+myOd+' overdue':''})</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
       ${[['Today','c-blue',todayV.length],['This Week','c-purple',weekV.length],['All Visits','c-green',all.length],['Parties','c-orange',myP.length],['Assigned','c-amber',myA.length]].map(([l,c,v])=>`<div class="stat-card ${c}"><div class="stat-value" style="font-size:24px">${v}</div><div class="stat-label">${l}</div></div>`).join('')}
@@ -1569,29 +1646,211 @@ function visitItem(v) {
   </div>`;
 }
 
+/* ─────────────────────────────────────────────
+   FOLLOW-UPS — salesperson wise
+   ───────────────────────────────────────────── */
+
+// safe string for inline onclick attributes
+function jsq(s) { return String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function spKey(v) { return v.salesperson || v.salespersonName || 'unknown'; }
+function spName(v) {
+  if (v.salespersonName) return v.salespersonName;
+  const u = USERS.find(x => x.id === v.salesperson);
+  return (u && u.name) || v.salesperson || 'Unassigned';
+}
+
+function fuBucket(v) {
+  const now = new Date(), d = new Date(v.followupDate);
+  if (isNaN(d)) return 'upcoming';
+  if (d < now) return 'overdue';
+  if (d.toDateString() === now.toDateString()) return 'today';
+  if (d.toDateString() === new Date(now.getTime()+86400000).toDateString()) return 'tomorrow';
+  return 'upcoming';
+}
+
+function fuDaysLabel(v) {
+  const now = new Date(), d = new Date(v.followupDate);
+  const diff = Math.round((d.setHours(0,0,0,0) - new Date(now).setHours(0,0,0,0)) / 86400000);
+  if (diff < 0)  return { cls:'od', txt: Math.abs(diff) + 'd late' };
+  if (diff === 0) return { cls:'td', txt:'Today' };
+  if (diff === 1) return { cls:'tm', txt:'Tomorrow' };
+  return { cls:'up', txt:'in ' + diff + 'd' };
+}
+
+// Build per-salesperson counts from the full follow-up list
+function buildFuStats(all) {
+  const map = {};
+  all.forEach(v => {
+    const k = spKey(v);
+    if (!map[k]) map[k] = { key:k, name:spName(v), overdue:0, today:0, tomorrow:0, upcoming:0, total:0 };
+    map[k][fuBucket(v)]++;
+    map[k].total++;
+  });
+  return Object.values(map).sort((a,b) => b.overdue - a.overdue || b.total - a.total);
+}
+
+function setFuSales(key) {
+  _fuSales = key;
+  renderPage('followups');
+}
+function setFuBucket(b) {
+  _fuBucket = b;
+  renderPage('followups');
+}
+function fuSearch(q) {
+  _fuSrch = q;
+  const box = document.getElementById('fuListBox');
+  if (box) box.innerHTML = fuSections();
+}
+function resetFuFilters() {
+  _fuSales = 'all'; _fuBucket = 'all'; _fuSrch = '';
+  renderPage('followups');
+}
+// jump from Sales Detail page straight into that person's follow-ups
+function openFollowupsFor(uid) {
+  _fuSales = uid; _fuBucket = 'all'; _fuSrch = '';
+  navTo('followups');
+}
+
+function fuAll() {
+  return getLatestFollowups(VISITS).sort((a,b)=>new Date(a.followupDate)-new Date(b.followupDate));
+}
+function fuSelected() {
+  let list = fuAll();
+  if (_fuSales !== 'all') list = list.filter(v => spKey(v) === _fuSales);
+  if (_fuBucket !== 'all') list = list.filter(v => fuBucket(v) === _fuBucket);
+  if (_fuSrch) {
+    const q = _fuSrch.toLowerCase();
+    list = list.filter(v => ((v.partyName||'') + ' ' + spName(v)).toLowerCase().includes(q));
+  }
+  return list;
+}
+
+function fuItem(v) {
+  const fu = new Date(v.followupDate);
+  const b = fuBucket(v);
+  const dl = fuDaysLabel(v);
+  return `<div class="fu-item ${b==='overdue'?'overdue':b==='today'?'today':'upcoming'}">
+    <div class="fu-left">
+      <div class="fu-name">${v.partyName||'—'}</div>
+      <div class="fu-time">${isNaN(fu)?'—':fu.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hour12:true})}</div>
+      <div class="fu-by">${spName(v)}</div>
+    </div>
+    <div class="fu-days ${dl.cls}">${dl.txt}</div>
+  </div>`;
+}
+
+function fuSections() {
+  const list = fuSelected();
+  if (!list.length) return emptyState('No follow-ups match these filters');
+  const groups = [
+    ['Overdue','overdue'], ['Today','today'], ['Tomorrow','tomorrow'], ['Upcoming','upcoming']
+  ];
+  return groups.map(([title,key]) => {
+    const g = list.filter(v => fuBucket(v) === key);
+    if (!g.length) return '';
+    return `<div class="sec-header"><div class="sec-title" style="${key==='overdue'?'color:var(--red)':''}">${title} (${g.length})</div></div>
+      <div class="fu-list">${g.map(fuItem).join('')}</div>`;
+  }).join('');
+}
+
 function pgFollowups() {
-  const all = getLatestFollowups(VISITS).sort((a,b)=>new Date(a.followupDate)-new Date(b.followupDate));
-  const now = new Date(), today = now.toDateString(), tomorrow = new Date(now.getTime()+86400000).toDateString();
-  const overdue  = all.filter(v=>new Date(v.followupDate)<now);
-  const todayF   = all.filter(v=>new Date(v.followupDate).toDateString()===today&&new Date(v.followupDate)>=now);
-  const tomorrowF= all.filter(v=>new Date(v.followupDate).toDateString()===tomorrow);
-  const upcoming = all.filter(v=>new Date(v.followupDate)>new Date(now.getTime()+86400000));
-  function fuItem(v,cls) {
-    const fu=new Date(v.followupDate);
-    return `<div class="fu-item ${cls}"><div class="fu-left"><div class="fu-name">${v.partyName||'—'}</div><div class="fu-time">${fu.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hour12:true})}</div><div class="fu-by">${v.salespersonName||v.salesperson||'—'}</div></div></div>`;
-  }
-  function section(title,list,cls) {
-    if (!list.length) return '';
-    return `<div class="sec-header"><div class="sec-title">${title} (${list.length})</div></div><div class="fu-list">${list.map(v=>fuItem(v,cls)).join('')}</div>`;
-  }
-  return `<div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
-    <div class="stat-card c-red"><div class="stat-value">${overdue.length}</div><div class="stat-label">Overdue</div></div>
-    <div class="stat-card c-blue"><div class="stat-value">${todayF.length}</div><div class="stat-label">Today</div></div>
-    <div class="stat-card c-purple"><div class="stat-value">${tomorrowF.length}</div><div class="stat-label">Tomorrow</div></div>
-    <div class="stat-card c-green"><div class="stat-value">${upcoming.length}</div><div class="stat-label">Upcoming</div></div>
+  const all = fuAll();
+  _fuStats = buildFuStats(all);
+
+  // counts for the currently selected salesperson (or everyone)
+  const scope = _fuSales === 'all' ? all : all.filter(v => spKey(v) === _fuSales);
+  const c = { overdue:0, today:0, tomorrow:0, upcoming:0 };
+  scope.forEach(v => c[fuBucket(v)]++);
+
+  const who = _fuSales === 'all' ? 'All salespersons' : (_fuStats.find(s=>s.key===_fuSales)?.name || _fuSales);
+  const filterOn = _fuSales !== 'all' || _fuBucket !== 'all' || _fuSrch;
+
+  const chips = `<div class="sp-chip ${_fuSales==='all'?'act':''}" onclick="setFuSales('all')">All <span class="cnt">${all.length}</span></div>` +
+    _fuStats.map(s => `<div class="sp-chip ${_fuSales===s.key?'act':''}" onclick="setFuSales('${jsq(s.key)}')">
+        ${s.name} <span class="cnt">${s.total}</span>${s.overdue?`<span class="od-dot">${s.overdue}</span>`:''}
+      </div>`).join('');
+
+  const rows = _fuStats.map(s => `<tr class="${_fuSales===s.key?'act':''}" onclick="setFuSales('${jsq(s.key)}')">
+      <td style="font-weight:500;color:var(--text)">${s.name}</td>
+      <td class="num ${s.overdue?'':'zero'}" style="color:${s.overdue?'var(--red)':''}">${s.overdue}</td>
+      <td class="num ${s.today?'':'zero'}" style="color:${s.today?'var(--blue)':''}">${s.today}</td>
+      <td class="num ${s.tomorrow?'':'zero'}" style="color:${s.tomorrow?'var(--purple)':''}">${s.tomorrow}</td>
+      <td class="num ${s.upcoming?'':'zero'}" style="color:${s.upcoming?'var(--green)':''}">${s.upcoming}</td>
+      <td class="num">${s.total}</td>
+    </tr>`).join('');
+
+  return `
+  <div class="sp-bar">
+    <div class="sp-bar-top">
+      <div class="sp-bar-title">Filter by salesperson</div>
+      ${filterOn?`<button class="sec-action" onclick="resetFuFilters()">Reset filters</button>`:''}
+      <input class="sp-search" id="fuSrch" placeholder="Search party or person..." value="${jsq(_fuSrch)}" oninput="fuSearch(this.value)">
+    </div>
+    <div class="sp-chips">${chips || '<span style="font-size:12px;color:var(--muted)">No follow-ups recorded yet</span>'}</div>
   </div>
-  ${section('Overdue',overdue,'overdue')}${section('Today',todayF,'today')}${section('Tomorrow',tomorrowF,'upcoming')}${section('Upcoming',upcoming,'upcoming')}
+
+  <div style="font-size:12px;color:var(--muted);margin:0 2px 10px">Showing: <b style="color:var(--text)">${who}</b>${_fuBucket!=='all'?` · ${_fuBucket}`:''}</div>
+
+  <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-card c-red"    style="cursor:pointer" onclick="setFuBucket('${_fuBucket==='overdue'?'all':'overdue'}')"><div class="stat-value">${c.overdue}</div><div class="stat-label">Overdue</div></div>
+    <div class="stat-card c-blue"   style="cursor:pointer" onclick="setFuBucket('${_fuBucket==='today'?'all':'today'}')"><div class="stat-value">${c.today}</div><div class="stat-label">Today</div></div>
+    <div class="stat-card c-purple" style="cursor:pointer" onclick="setFuBucket('${_fuBucket==='tomorrow'?'all':'tomorrow'}')"><div class="stat-value">${c.tomorrow}</div><div class="stat-label">Tomorrow</div></div>
+    <div class="stat-card c-green"  style="cursor:pointer" onclick="setFuBucket('${_fuBucket==='upcoming'?'all':'upcoming'}')"><div class="stat-value">${c.upcoming}</div><div class="stat-label">Upcoming</div></div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:18px">
+    <div class="chart-title">Follow-ups by salesperson <span class="chart-hint">Click a bar to filter</span></div>
+    <div class="chart-wrap" style="height:${Math.max(200, Math.min(_fuStats.length,14)*34 + 60)}px"><canvas id="chartFuSales"></canvas></div>
+  </div>
+
+  ${_fuStats.length?`<div class="sp-table-card">
+    <div class="table-head"><div class="sec-title" style="margin:0">Salesperson summary (${_fuStats.length})</div></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Salesperson</th><th>Overdue</th><th>Today</th><th>Tomorrow</th><th>Upcoming</th><th>Total</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`:''}
+
+  <div id="fuListBox">${fuSections()}</div>
   ${!all.length?emptyState('No follow-ups scheduled'):''}`;
+}
+
+function initFollowupChart() {
+  setTimeout(() => {
+    const ctx = document.getElementById('chartFuSales');
+    if (!ctx || !_fuStats.length) return;
+    const top = _fuStats.slice(0, 14);
+    _charts.fuSales = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: top.map(s => s.name),
+        datasets: [
+          { label:'Overdue',  data: top.map(s=>s.overdue),  backgroundColor:'rgba(220,38,38,.8)',  borderRadius:3 },
+          { label:'Today',    data: top.map(s=>s.today),    backgroundColor:'rgba(37,99,235,.75)', borderRadius:3 },
+          { label:'Tomorrow', data: top.map(s=>s.tomorrow), backgroundColor:'rgba(124,58,237,.75)',borderRadius:3 },
+          { label:'Upcoming', data: top.map(s=>s.upcoming), backgroundColor:'rgba(22,163,74,.7)',  borderRadius:3 }
+        ]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (evt, els) => { if (els.length) setFuSales(top[els[0].index].key); },
+        plugins: {
+          legend: { labels: { font:{ size:11 }, padding:12, boxWidth:12 } },
+          tooltip: { callbacks: { footer: items => 'Total: ' + top[items[0].dataIndex].total } }
+        },
+        scales: {
+          x: { stacked:true, beginAtZero:true, grid:{ color:'rgba(229,231,235,1)' }, ticks:{ precision:0, font:{ size:10 } } },
+          y: { stacked:true, grid:{ display:false }, ticks:{ font:{ size:11 } } }
+        }
+      }
+    });
+  }, 100);
 }
 
 function pgAssignments() {
@@ -1648,8 +1907,8 @@ function reqCard(r) {
       <div class="req-by">${r.requestedByName||r.requestedBy} · ${new Date(r.createdAt).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div>
       <div class="req-reason">${r.reason}</div>
       <div class="req-btns">
-        ${r.requestType==='delete'?`<button class="rbtn rbtn-approve" onclick="approveDelete('${r.partyId}','${r.partyName}','${r.id}')">Delete Party</button>`:`<button class="rbtn rbtn-approve" onclick="approveEdit('${r.partyId}','${r.id}')">Mark Done</button>`}
-        <button class="rbtn rbtn-reject" onclick="rejectReq('${r.id}')">Reject</button>
+        ${r.requestType==='delete'?`<button class="rbtn rbtn-approve" onclick="approveDelete('${jsq(r.partyId)}','${jsq(r.partyName)}','${jsq(r.id)}')">Delete Party</button>`:`<button class="rbtn rbtn-approve" onclick="approveEdit('${jsq(r.partyId)}','${jsq(r.id)}')">Mark Done</button>`}
+        <button class="rbtn rbtn-reject" onclick="rejectReq('${jsq(r.id)}')">Reject</button>
       </div>
     </div>
   </div>`;
